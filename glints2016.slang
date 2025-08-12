@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import bsdf;
 
 struct Uniforms
 {
@@ -40,10 +41,25 @@ bool raySquareIntersection(float3 rayOrigin, float3 rayDir, float3 center, float
     return false;
 }
 
+float3 evalSpecular(float3 wi, float3 wo, float alpha, float3 albedo)
+{
+    if (min(wi.z, wo.z) < kMinCosTheta)
+        return float3(0.f);
+    float3 h = normalize(wi + wo);
+    float wiDotH = dot(wi, h);
+
+    float D = evalNdfGGX(alpha, h.z);
+    float G = evalMaskingSmithGGXCorrelated(alpha, wi.z, wo.z);
+    float3 F = evalFresnelSchlick(albedo, 1.f, wiDotH);
+    return F * D * G * 0.25f / wi.z;
+}
+
 float4 raytraceScene(
     int2 threadIdx,
     Uniforms uniforms,
-    Texture2D tex,
+    Texture2D albedoTex,
+    Texture2D normalTex,
+    Texture2D roughnessTex,
     SamplerState samplerState)
 {
     if (threadIdx.x >= (int)uniforms.screenSize.x) return 0;
@@ -53,19 +69,38 @@ float4 raytraceScene(
     float imageY = (threadIdx.y / uniforms.screenSize.y - 0.5f) * uniforms.frameHeight;
     float imageX = (threadIdx.x / uniforms.screenSize.x - 0.5f) * frameWidth;
     float imageZ = uniforms.focalLength;
-    float3 rayDir = normalize(uniforms.cameraDir.xyz*imageZ - uniforms.cameraUp.xyz * imageY + uniforms.cameraRight.xyz * imageX);
+    float3 rayDir = normalize(uniforms.cameraDir.xyz * imageZ - uniforms.cameraUp.xyz * imageY + uniforms.cameraRight.xyz * imageX);
 
-    float4 resultColor = 0;
+    float3 resultColor = 0;
     float t = 0;
     float u = 0, v = 0;
 
-    float3 N = float3(0, 1, 0);
-    float3 V = -rayDir;
-    
     if (raySquareIntersection(uniforms.cameraPosition, rayDir, float3(0, 0, 0), float3(0, 1, 0), float3(1, 0, 0), 5.0f, t, u, v))
     {
-        resultColor = tex.SampleLevel(samplerState, float2(u, v), 0);
+        float2 texcoord = float2(u, v);
+
+        float3 Le = 9;
+        float3 V = -rayDir;
+        float3 N = normalize(normalTex.SampleLevel(samplerState, texcoord, 0).rgb * 2 - 1).xzy;
+        float3 L = normalize(float3(0.6, .9, 0.5));
+        float3 baseColor = albedoTex.SampleLevel(samplerState, texcoord, 0).rgb;
+        float roughness = roughnessTex.SampleLevel(samplerState, texcoord, 0).r;
+        float alpha = roughness * roughness;
+        float metallic = 0;
+        float3 diffuse = baseColor * (1.0 - metallic);
+        diffuse = clamp(diffuse, 0.01, 0.95);
+        float3 specular = lerp(0.04, baseColor, metallic);
+
+        Frame shadingFrame = Frame(N);
+        float3 wi = shadingFrame.toLocal(V);
+        float3 wo = shadingFrame.toLocal(L);
+
+        float3 diffuseLobe = diffuse * M_1_PI;
+        float3 specularLobe = evalSpecular(wi, wo, alpha, specular);
+        resultColor = Le * saturate(dot(N, L)) * (diffuseLobe + specularLobe);
     }
 
-    return resultColor;
+    resultColor = resultColor / (1 + resultColor);
+
+    return float4(resultColor, 1);
 }

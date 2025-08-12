@@ -12,9 +12,12 @@ import os
 device = spy.create_device(include_paths = [Path(__file__).parent])
 module = spy.Module.load_from_file(device, "glints2016.slang")
 
+output_w = 1920
+output_h = 1080
+
 uniforms = {
     "_type": "Uniforms",
-    "screenSize": sgl.float2(512, 512),
+    "screenSize": sgl.float2(output_w, output_h),
     "focalLength": 24.0,
     "frameHeight": 24.0,
 }
@@ -48,27 +51,51 @@ def updateCamera():
 updateCamera()
 
 pathname = os.path.realpath(__file__)
-imageData = imageio.v3.imread("imageio:bricks.jpg")
 
-# reshape imageData into 512x512x4, adding an alpha channel
-if imageData.shape[2] == 3:
-    imageData = np.concatenate([imageData, np.ones((512, 512, 1), dtype=np.uint8) * 255], axis=2)
+def loadImageData(path, w, h):
+    imageData = imageio.v3.imread(path)
+    # reshape imageData into 512x512x4, adding an alpha channel
+    print(imageData.shape)
+    if len(imageData.shape) >= 3 and imageData.shape[2] == 3:
+        imageData = np.concatenate([imageData, np.ones((w, h, 1), dtype=np.uint8) * 255], axis=2)
+    return imageData
 
-tex = device.create_texture(
-    width = 512,
-    height = 512,
-    format = sgl.Format.rgba8_unorm,
-    usage = sgl.ResourceUsage.shader_resource | sgl.ResourceUsage.unordered_access,
-    data = imageData,
+baseColorImageData = loadImageData("albedo.jpg", 4096, 4096)
+normalImageData = loadImageData("normal.jpg", 4096, 4096)
+roughnessImageData = loadImageData("roughness.jpg", 4096, 4096)
+
+albedoTex = device.create_texture(
+    width = 4096,
+    height = 4096,
+    format = sgl.Format.rgba8_unorm_srgb,
+    usage = sgl.ResourceUsage.shader_resource,
+    data = baseColorImageData,
 )
+
+normalTex = device.create_texture(
+    width = 4096,
+    height = 4096,
+    format = sgl.Format.rgba8_unorm,
+    usage = sgl.ResourceUsage.shader_resource,
+    data = normalImageData,
+)
+
+roughnessTex = device.create_texture(
+    width = 4096,
+    height = 4096,
+    format = sgl.Format.r8_unorm,
+    usage = sgl.ResourceUsage.shader_resource,
+    data = roughnessImageData,
+)
+
 samplerState = device.create_sampler()
 
 output = device.create_texture(
-    width = 512,
-    height = 512,
+    width = output_w,
+    height = output_h,
     format = sgl.Format.rgba8_unorm,
     usage = sgl.ResourceUsage.shader_resource | sgl.ResourceUsage.unordered_access
 )
-module.raytraceScene(call_id(), uniforms, tex, samplerState, _result = output)
+module.raytraceScene(call_id(), uniforms, albedoTex, normalTex, roughnessTex, samplerState, _result = output)
 
 imageio.imwrite("out.png", output.to_numpy())
