@@ -10,7 +10,7 @@ import imageio
 import os
 
 device = spy.create_device(include_paths = [Path(__file__).parent])
-module = spy.Module.load_from_file(device, "glints2016.slang")
+module = spy.Module.load_from_file(device, "glints.slang")
 
 output_w = 1920
 output_h = 1080
