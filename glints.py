@@ -12,6 +12,16 @@ import os
 device = spy.create_device(include_paths = [Path(__file__).parent])
 module = spy.Module.load_from_file(device, "glints.slang")
 
+noiseModule = spy.Module.load_from_file(device, "glints2023Noise.slang")
+noiseSize = 512
+noiseTex = device.create_texture(
+    width = noiseSize,
+    height = noiseSize,
+    format = sgl.Format.rgba32_float,
+    usage = sgl.ResourceUsage.shader_resource | sgl.ResourceUsage.unordered_access
+)
+noiseModule.InitNoise(call_id(), sgl.float2(noiseSize, noiseSize), 42, _result = noiseTex)
+
 output_w = 1920
 output_h = 1080
 
@@ -96,6 +106,6 @@ output = device.create_texture(
     format = sgl.Format.rgba8_unorm,
     usage = sgl.ResourceUsage.shader_resource | sgl.ResourceUsage.unordered_access
 )
-module.raytraceScene(call_id(), uniforms, albedoTex, normalTex, roughnessTex, samplerState, _result = output)
+module.raytraceScene(call_id(), uniforms, albedoTex, normalTex, roughnessTex, noiseTex, samplerState, _result = output)
 
 imageio.imwrite("out.png", output.to_numpy())
